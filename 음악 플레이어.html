@@ -1,0 +1,790 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MyPlayer</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Noto Sans KR', 'Apple SD Gothic Neo', sans-serif; background: #0d0d14; color: #e8e8f0; overflow: hidden; height: 100vh; }
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 2px; }
+  input[type=range] { -webkit-appearance: none; height: 3px; border-radius: 2px; outline: none; cursor: pointer; }
+  input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 12px; height: 12px; border-radius: 50%; background: #fff; cursor: pointer; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel">
+const { useState, useEffect, useRef, useCallback } = React;
+
+// Album art colors - gradient backgrounds as placeholders
+const albumColors = [
+  ['#e8a87c','#d4548a','#7b2d8b'],
+  ['#6b4fbb','#3b82f6','#1e3a5f'],
+  ['#c855b0','#7b2d8b','#1a1a2e'],
+  ['#4a7fbd','#2d4a8a','#1a1f3a'],
+  ['#3ca0d0','#1a6b9a','#0d2b3e'],
+  ['#888','#555','#333'],
+];
+
+const songs = [
+  { id:1, title:'새벽의 노래', artist:'나얼', album:'Ballad Pop City', duration:'4:18', durationSec:258, colors:albumColors[0] },
+  { id:2, title:'Dreamers', artist:'Glass Animals', album:'Dreamland', duration:'3:24', durationSec:204, colors:albumColors[1] },
+  { id:3, title:'Love Me Like That', artist:'Sam Kim', album:'Love Me Like That', duration:'3:40', durationSec:220, colors:albumColors[2] },
+  { id:4, title:'도시의 하루', artist:'HYNN', album:'The Narrative', duration:'4:32', durationSec:272, colors:albumColors[3] },
+  { id:5, title:'Blue', artist:'김풋돌', album:'Blue', duration:'2:59', durationSec:179, colors:albumColors[4] },
+  { id:6, title:'잠시 안녕처럼', artist:'성시경', album:'너의 모든 순간', duration:'4:44', durationSec:284, colors:albumColors[5] },
+];
+
+const playlists = ['즐겨찾기','운동할 때','집중할 때','밤에 듣기 좋은 노래','90년대 명곡'];
+
+function AlbumArt({ song, size = 40, radius = 6, style = {} }) {
+  const [c1,c2,c3] = song.colors;
+  return (
+    <div style={{
+      width: size, height: size, borderRadius: radius, flexShrink: 0,
+      background: `linear-gradient(135deg, ${c1}, ${c2}, ${c3})`,
+      display:'flex', alignItems:'center', justifyContent:'center', ...style
+    }}>
+      <svg width={size*0.35} height={size*0.35} viewBox="0 0 24 24" fill="rgba(255,255,255,0.6)">
+        <circle cx="12" cy="12" r="4"/>
+        <circle cx="12" cy="12" r="9" fill="none" stroke="rgba(255,255,255,0.4)" strokeWidth="1.5"/>
+      </svg>
+    </div>
+  );
+}
+
+function Icon({ name, size=16, color='currentColor' }) {
+  const icons = {
+    home: <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>,
+    music: <><path d="M9 18V5l12-2v13" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/><circle cx="6" cy="18" r="3" fill="none" stroke={color} strokeWidth="2"/><circle cx="18" cy="16" r="3" fill="none" stroke={color} strokeWidth="2"/></>,
+    album: <rect x="3" y="3" width="18" height="18" rx="2" fill="none" stroke={color} strokeWidth="2"/>,
+    artist: <><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" fill="none" stroke={color} strokeWidth="2"/><circle cx="12" cy="7" r="4" fill="none" stroke={color} strokeWidth="2"/></>,
+    folder: <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" fill="none" stroke={color} strokeWidth="2"/>,
+    list: <><line x1="8" y1="6" x2="21" y2="6" stroke={color} strokeWidth="2" strokeLinecap="round"/><line x1="8" y1="12" x2="21" y2="12" stroke={color} strokeWidth="2" strokeLinecap="round"/><line x1="8" y1="18" x2="21" y2="18" stroke={color} strokeWidth="2" strokeLinecap="round"/><line x1="3" y1="6" x2="3.01" y2="6" stroke={color} strokeWidth="2" strokeLinecap="round"/><line x1="3" y1="12" x2="3.01" y2="12" stroke={color} strokeWidth="2" strokeLinecap="round"/><line x1="3" y1="18" x2="3.01" y2="18" stroke={color} strokeWidth="2" strokeLinecap="round"/></>,
+    heart: <path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z" fill={color==='filled'?'#e94f8a':color} stroke={color==='filled'?'#e94f8a':color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>,
+    settings: <><circle cx="12" cy="12" r="3" fill="none" stroke={color} strokeWidth="2"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" fill="none" stroke={color} strokeWidth="2"/></>,
+    info: <><circle cx="12" cy="12" r="10" fill="none" stroke={color} strokeWidth="2"/><line x1="12" y1="16" x2="12" y2="12" stroke={color} strokeWidth="2" strokeLinecap="round"/><line x1="12" y1="8" x2="12.01" y2="8" stroke={color} strokeWidth="2" strokeLinecap="round"/></>,
+    search: <><circle cx="11" cy="11" r="8" fill="none" stroke={color} strokeWidth="2"/><line x1="21" y1="21" x2="16.65" y2="16.65" stroke={color} strokeWidth="2" strokeLinecap="round"/></>,
+    play: <polygon points="5 3 19 12 5 21 5 3" fill={color} stroke={color} strokeWidth="0"/>,
+    pause: <><rect x="6" y="4" width="4" height="16" fill={color}/><rect x="14" y="4" width="4" height="16" fill={color}/></>,
+    skip_prev: <><polygon points="19 20 9 12 19 4 19 20" fill={color}/><line x1="5" y1="19" x2="5" y2="5" stroke={color} strokeWidth="2" strokeLinecap="round"/></>,
+    skip_next: <><polygon points="5 4 15 12 5 20 5 4" fill={color}/><line x1="19" y1="5" x2="19" y2="19" stroke={color} strokeWidth="2" strokeLinecap="round"/></>,
+    shuffle: <><polyline points="16 3 21 3 21 8" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/><line x1="4" y1="20" x2="21" y2="3" stroke={color} strokeWidth="2" strokeLinecap="round"/><polyline points="21 16 21 21 16 21" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/><line x1="15" y1="15" x2="21" y2="21" stroke={color} strokeWidth="2" strokeLinecap="round"/></>,
+    repeat: <><polyline points="17 1 21 5 17 9" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/><path d="M3 11V9a4 4 0 014-4h14" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round"/><polyline points="7 23 3 19 7 15" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/><path d="M21 13v2a4 4 0 01-4 4H3" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round"/></>,
+    volume: <><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/><path d="M19.07 4.93a10 10 0 010 14.14" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round"/><path d="M15.54 8.46a5 5 0 010 7.07" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round"/></>,
+    dots: <><circle cx="12" cy="5" r="1" fill={color}/><circle cx="12" cy="12" r="1" fill={color}/><circle cx="12" cy="19" r="1" fill={color}/></>,
+    bars: <><line x1="18" y1="20" x2="18" y2="10" stroke={color} strokeWidth="2" strokeLinecap="round"/><line x1="12" y1="20" x2="12" y2="4" stroke={color} strokeWidth="2" strokeLinecap="round"/><line x1="6" y1="20" x2="6" y2="14" stroke={color} strokeWidth="2" strokeLinecap="round"/></>,
+    queue: <><line x1="8" y1="6" x2="21" y2="6" stroke={color} strokeWidth="2" strokeLinecap="round"/><line x1="8" y1="12" x2="21" y2="12" stroke={color} strokeWidth="2" strokeLinecap="round"/><line x1="8" y1="18" x2="21" y2="18" stroke={color} strokeWidth="2" strokeLinecap="round"/><line x1="3" y1="6" x2="3.01" y2="6" stroke={color} strokeWidth="2"/><line x1="3" y1="12" x2="3.01" y2="12" stroke={color} strokeWidth="2"/><line x1="3" y1="18" x2="3.01" y2="18" stroke={color} strokeWidth="2"/></>,
+    plus: <><line x1="12" y1="5" x2="12" y2="19" stroke={color} strokeWidth="2" strokeLinecap="round"/><line x1="5" y1="12" x2="19" y2="12" stroke={color} strokeWidth="2" strokeLinecap="round"/></>,
+    chevron_right: <polyline points="9 18 15 12 9 6" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>,
+    lyrics: <><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></>,
+    browse: <><circle cx="11" cy="11" r="8" fill="none" stroke={color} strokeWidth="2"/><line x1="21" y1="21" x2="16.65" y2="16.65" stroke={color} strokeWidth="2" strokeLinecap="round"/></>,
+    radio: <><circle cx="12" cy="12" r="2" fill={color}/><path d="M16.24 7.76a6 6 0 010 8.49m-8.48-.01a6 6 0 010-8.49m11.31-2.82a10 10 0 010 14.14m-14.14 0a10 10 0 010-14.14" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round"/></>,
+  };
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" style={{display:'block',flexShrink:0}}>
+      {icons[name]}
+    </svg>
+  );
+}
+
+function formatTime(sec) {
+  const m = Math.floor(sec/60);
+  const s = Math.floor(sec%60);
+  return `${m}:${s.toString().padStart(2,'0')}`;
+}
+
+function App() {
+  const [activeNav, setActiveNav] = useState('홈');
+  const [currentSong, setCurrentSong] = useState(songs[1]);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [progress, setProgress] = useState(72); // seconds
+  const [volume, setVolume] = useState(70);
+  const [liked, setLiked] = useState({2: true});
+  const [hoveredRow, setHoveredRow] = useState(null);
+  const [rightPanel, setRightPanel] = useState('queue'); // 'queue' | 'lyrics'
+  const [shuffle, setShuffle] = useState(false);
+  const [repeat, setRepeat] = useState(false);
+  const [view, setView] = useState('home'); // 'home' | 'detail'
+  const intervalRef = useRef(null);
+
+  const progressPct = (progress / currentSong.durationSec) * 100;
+
+  useEffect(() => {
+    if (isPlaying) {
+      intervalRef.current = setInterval(() => {
+        setProgress(p => {
+          if (p >= currentSong.durationSec) {
+            const idx = songs.findIndex(s => s.id === currentSong.id);
+            const next = songs[(idx+1) % songs.length];
+            setCurrentSong(next);
+            return 0;
+          }
+          return p + 1;
+        });
+      }, 1000);
+    } else {
+      clearInterval(intervalRef.current);
+    }
+    return () => clearInterval(intervalRef.current);
+  }, [isPlaying, currentSong]);
+
+  const playSong = (song) => {
+    setCurrentSong(song);
+    setProgress(0);
+    setIsPlaying(true);
+  };
+
+  const togglePlay = () => setIsPlaying(p => !p);
+  const skipNext = () => {
+    const idx = songs.findIndex(s => s.id === currentSong.id);
+    playSong(songs[(idx+1)%songs.length]);
+  };
+  const skipPrev = () => {
+    const idx = songs.findIndex(s => s.id === currentSong.id);
+    playSong(songs[(idx-1+songs.length)%songs.length]);
+  };
+  const toggleLike = (id) => setLiked(l => ({...l, [id]: !l[id]}));
+
+  const navItems = [
+    { label:'홈', icon:'home' },
+    { label:'곡', icon:'music' },
+    { label:'앨범', icon:'album' },
+    { label:'아티스트', icon:'artist' },
+    { label:'폴더', icon:'folder' },
+    { label:'재생목록', icon:'list' },
+  ];
+
+  const queue = songs.filter(s => s.id !== currentSong.id).slice(0,4);
+
+  const lyrics = [
+    { time: '0:40', line: 'Take me to a place', active: false },
+    { time: '0:50', line: 'Where the music\'s loud', active: true },
+    { time: '1:00', line: 'And the dreams are made of', active: false },
+    { time: '1:10', line: 'This is where I belong', active: false },
+    { time: '1:20', line: '', active: false },
+    { time: '1:30', line: 'I had a dream so big and loud', active: false },
+    { time: '1:40', line: 'I jumped so high I touched the clouds', active: false },
+    { time: '1:50', line: 'Wo-o-o-oh', active: false },
+    { time: '2:00', line: 'Wo-o-o-oh', active: false },
+  ];
+
+  return (
+    <div style={{ display:'flex', flexDirection:'column', height:'100vh', background:'#0d0d16', color:'#ddd' }}>
+      {/* Main layout */}
+      <div style={{ display:'flex', flex:1, overflow:'hidden' }}>
+        {/* Sidebar */}
+        <aside style={{
+          width: 220, flexShrink:0,
+          background:'rgba(10,10,20,0.95)',
+          borderRight:'1px solid rgba(255,255,255,0.05)',
+          display:'flex', flexDirection:'column',
+          padding:'16px 0',
+        }}>
+          {/* Logo */}
+          <div style={{ display:'flex', alignItems:'center', gap:10, padding:'0 18px 20px' }}>
+            <img src="uploads/logo.png" alt="Luma" style={{ width:32, height:32, borderRadius:8, objectFit:'cover' }}/>
+            <span style={{ fontWeight:700, fontSize:15, color:'#fff', letterSpacing:'-0.01em' }}>Luma</span>
+          </div>
+
+          {/* Search */}
+          <div style={{ padding:'0 14px 16px' }}>
+            <div style={{
+              display:'flex', alignItems:'center', gap:8,
+              background:'rgba(255,255,255,0.07)', borderRadius:8, padding:'7px 12px'
+            }}>
+              <Icon name="search" size={14} color="rgba(255,255,255,0.4)"/>
+              <span style={{ fontSize:13, color:'rgba(255,255,255,0.35)', flex:1 }}>검색</span>
+              <span style={{ fontSize:11, color:'rgba(255,255,255,0.2)', background:'rgba(255,255,255,0.08)', padding:'1px 5px', borderRadius:4 }}>⌘K</span>
+            </div>
+          </div>
+
+          {/* Nav */}
+          <div style={{ padding:'0 8px' }}>
+            {navItems.map(n => (
+              <button key={n.label} onClick={() => { setActiveNav(n.label); setView('home'); }}
+                style={{
+                  display:'flex', alignItems:'center', gap:10, width:'100%',
+                  padding:'9px 12px', borderRadius:8, border:'none', cursor:'pointer',
+                  background: activeNav===n.label ? 'linear-gradient(90deg,rgba(139,92,246,0.3),rgba(139,92,246,0.1))' : 'transparent',
+                  color: activeNav===n.label ? '#a78bfa' : 'rgba(255,255,255,0.55)',
+                  fontFamily:'inherit', fontSize:13, fontWeight: activeNav===n.label ? 600 : 400,
+                  transition:'all .15s',
+                }}>
+                <Icon name={n.icon} size={16} color={activeNav===n.label ? '#a78bfa' : 'rgba(255,255,255,0.45)'}/>
+                {n.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Playlists */}
+          <div style={{ padding:'20px 8px 0', flex:1, overflowY:'auto' }}>
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0 10px 8px' }}>
+              <span style={{ fontSize:11, fontWeight:600, color:'rgba(255,255,255,0.3)', letterSpacing:'0.05em' }}>재생목록</span>
+              <button style={{ background:'none', border:'none', cursor:'pointer', color:'rgba(255,255,255,0.3)', padding:2 }}>
+                <Icon name="plus" size={14} color="rgba(255,255,255,0.35)"/>
+              </button>
+            </div>
+            {[
+              {label:'즐겨찾기', icon:'heart', color:'#e94f8a'},
+              {label:'운동할 때', icon:'bars', color:'#f59e0b'},
+              {label:'집중할 때', icon:'browse', color:'#3b82f6'},
+              {label:'밤에 듣기 좋은 노래', icon:'music', color:'#8b5cf6'},
+              {label:'90년대 명곡', icon:'album', color:'#10b981'},
+            ].map(p => (
+              <button key={p.label}
+                style={{
+                  display:'flex', alignItems:'center', gap:10, width:'100%',
+                  padding:'8px 12px', borderRadius:8, border:'none', cursor:'pointer',
+                  background:'transparent', color:'rgba(255,255,255,0.5)',
+                  fontFamily:'inherit', fontSize:12, transition:'all .15s',
+                }}
+                onMouseEnter={e=>e.currentTarget.style.color='rgba(255,255,255,0.85)'}
+                onMouseLeave={e=>e.currentTarget.style.color='rgba(255,255,255,0.5)'}
+              >
+                <Icon name={p.icon} size={14} color={p.color}/>
+                <span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.label}</span>
+              </button>
+            ))}
+          </div>
+
+          {/* Bottom nav */}
+          <div style={{ padding:'12px 8px 0', borderTop:'1px solid rgba(255,255,255,0.05)' }}>
+            {[{label:'설정',icon:'settings'},{label:'정보',icon:'info'}].map(n=>(
+              <button key={n.label} style={{
+                display:'flex', alignItems:'center', gap:10, width:'100%',
+                padding:'9px 12px', borderRadius:8, border:'none', cursor:'pointer',
+                background:'transparent', color:'rgba(255,255,255,0.4)',
+                fontFamily:'inherit', fontSize:13, transition:'all .15s',
+              }}>
+                <Icon name={n.icon} size={16} color="rgba(255,255,255,0.35)"/>
+                {n.label}
+              </button>
+            ))}
+          </div>
+        </aside>
+
+        {/* Main content */}
+        <main style={{
+          flex:1, overflowY:'auto', padding:'32px 32px 16px', minWidth:0,
+          position:'relative',
+          background: view==='detail'
+            ? `radial-gradient(ellipse at 20% 50%, ${currentSong.colors[0]}33 0%, transparent 60%),
+               radial-gradient(ellipse at 80% 20%, ${currentSong.colors[1]}28 0%, transparent 55%),
+               radial-gradient(ellipse at 60% 90%, ${currentSong.colors[2]}22 0%, transparent 50%)`
+            : 'transparent',
+          transition:'background .6s',
+        }}>
+          {view === 'home' ? (
+            <>
+              <h1 style={{ fontSize:28, fontWeight:700, color:'#fff', marginBottom:28 }}>홈</h1>
+
+              {/* Recent plays */}
+              <section style={{ marginBottom:36 }}>
+                <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:16 }}>
+                  <span style={{ fontSize:17, fontWeight:700, color:'#fff' }}>최근 재생</span>
+                  <Icon name="chevron_right" size={16} color="rgba(255,255,255,0.4)"/>
+                </div>
+                <div style={{ display:'flex', gap:16 }}>
+                  {songs.map(song => (
+                    <div key={song.id}
+                      onClick={() => { playSong(song); setView('detail'); }}
+                      style={{ width:140, cursor:'pointer' }}
+                    >
+                      <div style={{ position:'relative', marginBottom:10 }}>
+                        <div style={{
+                          width:140, height:140, borderRadius:12,
+                          background:`linear-gradient(135deg,${song.colors[0]},${song.colors[1]},${song.colors[2]})`,
+                          display:'flex', alignItems:'center', justifyContent:'center',
+                          boxShadow: currentSong.id===song.id ? `0 8px 32px ${song.colors[1]}55` : '0 4px 16px rgba(0,0,0,0.4)',
+                          transition:'transform .2s, box-shadow .2s',
+                          border: currentSong.id===song.id ? `2px solid rgba(255,255,255,0.3)` : '2px solid transparent',
+                        }}>
+                          <svg width="40" height="40" viewBox="0 0 24 24" fill="rgba(255,255,255,0.5)">
+                            <circle cx="12" cy="12" r="4"/>
+                            <circle cx="12" cy="12" r="9" fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth="1.5"/>
+                          </svg>
+                        </div>
+                        {currentSong.id===song.id && isPlaying && (
+                          <div style={{
+                            position:'absolute', top:8, right:8,
+                            background:'rgba(0,0,0,0.6)', borderRadius:4,
+                            padding:'2px 4px', display:'flex', gap:2, alignItems:'flex-end'
+                          }}>
+                            {[1,2,3].map(i=>(
+                              <div key={i} style={{
+                                width:3, borderRadius:2,
+                                background:'#a78bfa',
+                                animation:`eq${i} 0.6s ease-in-out infinite alternate`,
+                                height: [10,14,8][i-1],
+                              }}/>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <div style={{ fontSize:13, fontWeight:600, color:'#fff', marginBottom:2, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{song.title}</div>
+                      <div style={{ fontSize:11, color:'rgba(255,255,255,0.45)' }}>{song.artist}</div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+
+              {/* All songs */}
+              <section>
+                <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:16 }}>
+                  <span style={{ fontSize:17, fontWeight:700, color:'#fff' }}>전체 곡</span>
+                </div>
+                <table style={{ width:'100%', borderCollapse:'collapse' }}>
+                  <thead>
+                    <tr style={{ borderBottom:'1px solid rgba(255,255,255,0.07)' }}>
+                      {['#','제목','아티스트','앨범',''].map((h,i)=>(
+                        <th key={i} style={{
+                          textAlign: i===0?'center':'left',
+                          padding:'8px 12px', fontSize:11,
+                          color:'rgba(255,255,255,0.3)', fontWeight:500, letterSpacing:'0.05em',
+                          width: i===0?44:i===4?50:'auto'
+                        }}>{h}</th>
+                      ))}
+                      <th style={{ width:64, textAlign:'right', padding:'8px 12px' }}>
+                        <Icon name="dots" size={14} color="rgba(255,255,255,0.3)"/>
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {songs.map((song, idx) => {
+                      const isActive = currentSong.id === song.id;
+                      const isHovered = hoveredRow === song.id;
+                      return (
+                        <tr key={song.id}
+                          onMouseEnter={()=>setHoveredRow(song.id)}
+                          onMouseLeave={()=>setHoveredRow(null)}
+                          onDoubleClick={()=>{ playSong(song); setView('detail'); }}
+                          style={{
+                            borderRadius:8,
+                            background: isActive ? 'rgba(139,92,246,0.12)' : isHovered ? 'rgba(255,255,255,0.04)' : 'transparent',
+                            transition:'background .1s', cursor:'default'
+                          }}
+                        >
+                          <td style={{ padding:'10px 12px', textAlign:'center', width:44 }}>
+                            {isActive && isPlaying
+                              ? <div style={{display:'flex',gap:2,alignItems:'flex-end',justifyContent:'center'}}>
+                                  {[1,2,3].map(i=><div key={i} style={{width:3,borderRadius:2,background:'#a78bfa',height:[8,12,6][i-1]}}/>)}
+                                </div>
+                              : <span style={{ fontSize:13, color: isActive ? '#a78bfa' : 'rgba(255,255,255,0.4)' }}>{idx+1}</span>
+                            }
+                          </td>
+                          <td style={{ padding:'10px 12px' }}>
+                            <div style={{ display:'flex', alignItems:'center', gap:12 }}>
+                              <AlbumArt song={song} size={36} radius={6}/>
+                              <span style={{ fontSize:13, fontWeight:500, color: isActive ? '#a78bfa' : '#fff' }}>{song.title}</span>
+                            </div>
+                          </td>
+                          <td style={{ padding:'10px 12px', fontSize:13, color:'rgba(255,255,255,0.5)' }}>{song.artist}</td>
+                          <td style={{ padding:'10px 12px', fontSize:13, color:'rgba(255,255,255,0.4)' }}>{song.album}</td>
+                          <td style={{ padding:'10px 12px', fontSize:13, color:'rgba(255,255,255,0.4)', textAlign:'right' }}>{song.duration}</td>
+                          <td style={{ padding:'10px 12px', textAlign:'right' }}>
+                            <button onClick={e=>{e.stopPropagation();toggleLike(song.id);}}
+                              style={{ background:'none', border:'none', cursor:'pointer', opacity: liked[song.id]||isHovered?1:0, transition:'opacity .15s' }}>
+                              <Icon name="heart" size={15} color={liked[song.id]?'filled':'rgba(255,255,255,0.4)'}/>
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </section>
+            </>
+          ) : (
+            /* Detail view — ambient bg */
+            <div style={{ position:'relative', minHeight:'100%' }}>
+              {/* Ambient gradient background */}
+              <div style={{
+                position:'absolute', inset:'-32px -32px -16px',
+                background:`radial-gradient(ellipse at 30% 40%, ${currentSong.colors[0]}55 0%, transparent 55%),
+                            radial-gradient(ellipse at 70% 20%, ${currentSong.colors[1]}44 0%, transparent 50%),
+                            radial-gradient(ellipse at 50% 80%, ${currentSong.colors[2]}33 0%, transparent 50%)`,
+                filter:'blur(40px)', pointerEvents:'none', zIndex:0,
+              }}/>
+              <div style={{ position:'relative', zIndex:1, display:'flex', gap:40, alignItems:'flex-start', paddingTop:8 }}>
+                {/* Left: album art + actions + lyrics */}
+                <div style={{ flexShrink:0, width:260 }}>
+                  {/* Album art */}
+                  <div style={{
+                    width:260, height:260, borderRadius:18,
+                    background:`linear-gradient(135deg,${currentSong.colors[0]},${currentSong.colors[1]},${currentSong.colors[2]})`,
+                    boxShadow:`0 24px 60px ${currentSong.colors[1]}55, 0 8px 20px rgba(0,0,0,0.5)`,
+                    display:'flex', alignItems:'center', justifyContent:'center',
+                    marginBottom:18,
+                  }}>
+                    <svg width="70" height="70" viewBox="0 0 24 24" fill="rgba(255,255,255,0.45)">
+                      <circle cx="12" cy="12" r="4"/>
+                      <circle cx="12" cy="12" r="9" fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth="1.5"/>
+                    </svg>
+                  </div>
+                  {/* Like / more */}
+                  <div style={{ display:'flex', gap:10, marginBottom:28 }}>
+                    <button onClick={()=>toggleLike(currentSong.id)} style={{ background:'none', border:'none', cursor:'pointer', padding:6 }}>
+                      <Icon name="heart" size={22} color={liked[currentSong.id]?'filled':'rgba(255,255,255,0.45)'}/>
+                    </button>
+                    <button style={{ background:'none', border:'none', cursor:'pointer', padding:6 }}>
+                      <Icon name="dots" size={22} color="rgba(255,255,255,0.45)"/>
+                    </button>
+                  </div>
+
+                  {/* Lyrics */}
+                  <div>
+                    <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:14 }}>
+                      <span style={{ fontSize:15, fontWeight:700, color:'#fff' }}>가사</span>
+                      <button style={{ background:'none', border:'none', cursor:'pointer', color:'rgba(255,255,255,0.4)', fontSize:12, display:'flex', alignItems:'center', gap:3 }}>
+                        더보기 <Icon name="chevron_right" size={13} color="rgba(255,255,255,0.4)"/>
+                      </button>
+                    </div>
+                    <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'4px 20px' }}>
+                      {lyrics.map((l, i) => (
+                        <div key={i} style={{
+                          fontSize: 13, lineHeight: 1.8,
+                          color: l.active ? 'rgba(255,255,255,0.95)' : 'rgba(255,255,255,0.3)',
+                          fontWeight: l.active ? 600 : 400,
+                          transition:'color .3s'
+                        }}>{l.line || '\u00a0'}</div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Right: song info */}
+                <div style={{ flex:1, minWidth:0, paddingTop:8 }}>
+                  <div style={{ fontSize:44, fontWeight:800, color:'#fff', lineHeight:1.05, marginBottom:10, letterSpacing:'-0.02em' }}>{currentSong.title}</div>
+                  <div style={{ fontSize:20, color:'#e94f8a', fontWeight:600, marginBottom:6 }}>{currentSong.artist}</div>
+                  <div style={{ fontSize:14, color:'rgba(255,255,255,0.45)', marginBottom:18 }}>{currentSong.album} · 2020</div>
+                  <div style={{ display:'flex', gap:8, marginBottom:28 }}>
+                    <span style={{ fontSize:11, background:'rgba(255,255,255,0.1)', border:'1px solid rgba(255,255,255,0.12)', padding:'4px 12px', borderRadius:20, color:'rgba(255,255,255,0.65)', fontWeight:500 }}>MP3</span>
+                    <span style={{ fontSize:11, background:'rgba(255,255,255,0.1)', border:'1px solid rgba(255,255,255,0.12)', padding:'4px 12px', borderRadius:20, color:'rgba(255,255,255,0.65)', fontWeight:500 }}>320kbps</span>
+                  </div>
+                  <div style={{ display:'flex', gap:12 }}>
+                    <button onClick={()=>setIsPlaying(true)} style={{
+                      display:'flex', alignItems:'center', gap:9,
+                      background:'linear-gradient(135deg,#e94f8a,#c0396d)',
+                      border:'none', borderRadius:28, padding:'13px 32px',
+                      color:'#fff', fontSize:15, fontWeight:700, cursor:'pointer',
+                      boxShadow:'0 8px 24px rgba(233,79,138,0.4)',
+                    }}>
+                      <Icon name="play" size={15} color="#fff"/> 재생
+                    </button>
+                    <button onClick={()=>setShuffle(s=>!s)} style={{
+                      display:'flex', alignItems:'center', gap:9,
+                      background:'rgba(255,255,255,0.12)', border:'1px solid rgba(255,255,255,0.15)',
+                      borderRadius:28, padding:'13px 32px',
+                      color:'#fff', fontSize:15, fontWeight:600, cursor:'pointer',
+                    }}>
+                      <Icon name="shuffle" size={15} color="#fff"/> 셔플
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </main>
+
+        {/* Right panel */}
+        <aside style={{
+          width: 280, flexShrink:0,
+          background: view==='detail' ? 'rgba(8,8,18,0.55)' : 'rgba(8,8,18,0.95)',
+          backdropFilter: view==='detail' ? 'blur(24px)' : 'none',
+          borderLeft:'1px solid rgba(255,255,255,0.05)',
+          display:'flex', flexDirection:'column',
+          transition:'background .4s',
+        }}>
+          {view === 'detail' ? (
+            /* Detail mode: 재생 목록 */
+            <>
+              <div style={{ padding:'20px 20px 14px', display:'flex', alignItems:'flex-start', justifyContent:'space-between' }}>
+                <div>
+                  <div style={{ fontSize:14, fontWeight:700, color:'#fff', marginBottom:3 }}>재생 목록</div>
+                  <div style={{ fontSize:11, color:'rgba(255,255,255,0.35)' }}>18곡, 1시간 7분</div>
+                </div>
+                <button style={{ background:'none', border:'none', cursor:'pointer', padding:4, marginTop:2 }}>
+                  <Icon name="dots" size={16} color="rgba(255,255,255,0.4)"/>
+                </button>
+              </div>
+              <div style={{ flex:1, overflowY:'auto', padding:'0 12px' }}>
+                {/* Current (active) song */}
+                <div style={{
+                  display:'flex', alignItems:'center', gap:10, padding:'10px 10px',
+                  borderRadius:10, background:'rgba(139,92,246,0.18)', marginBottom:4, cursor:'pointer'
+                }}>
+                  <div style={{ width:20, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                    <div style={{display:'flex',gap:2,alignItems:'flex-end'}}>
+                      {[1,2,3].map(i=>(
+                        <div key={i} style={{
+                          width:3, borderRadius:2, background:'#a78bfa',
+                          height:[8,12,6][i-1],
+                          animation: isPlaying ? `eq${i} 0.6s ease-in-out infinite alternate` : 'none'
+                        }}/>
+                      ))}
+                    </div>
+                  </div>
+                  <AlbumArt song={currentSong} size={40} radius={8}/>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontSize:13, fontWeight:600, color:'#fff', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{currentSong.title}</div>
+                    <div style={{ fontSize:11, color:'rgba(255,255,255,0.45)', marginTop:1 }}>{currentSong.artist}</div>
+                  </div>
+                  <span style={{ fontSize:11, color:'rgba(255,255,255,0.4)', flexShrink:0 }}>{currentSong.duration}</span>
+                </div>
+                {/* Queue songs */}
+                {songs.filter(s=>s.id!==currentSong.id).map((song, idx) => (
+                  <div key={song.id} onClick={()=>playSong(song)}
+                    style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 10px', borderRadius:10, cursor:'pointer', marginBottom:2 }}
+                    onMouseEnter={e=>e.currentTarget.style.background='rgba(255,255,255,0.06)'}
+                    onMouseLeave={e=>e.currentTarget.style.background='transparent'}
+                  >
+                    <span style={{ width:20, textAlign:'center', fontSize:12, color:'rgba(255,255,255,0.3)', flexShrink:0 }}>{idx+2}</span>
+                    <AlbumArt song={song} size={40} radius={8}/>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ fontSize:13, fontWeight:500, color:'rgba(255,255,255,0.85)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{song.title}</div>
+                      <div style={{ fontSize:11, color:'rgba(255,255,255,0.4)', marginTop:1 }}>{song.artist}</div>
+                    </div>
+                    <span style={{ fontSize:11, color:'rgba(255,255,255,0.35)', flexShrink:0 }}>{song.duration}</span>
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : (
+            /* Home mode: Now playing panel */
+            <>
+              <div style={{ padding:'20px 20px 0', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+                <span style={{ fontSize:13, fontWeight:600, color:'rgba(255,255,255,0.6)' }}>지금 재생 중</span>
+              </div>
+
+              <div style={{ padding:20, paddingBottom:12 }}>
+                <div style={{
+                  width:'100%', aspectRatio:'1/1', borderRadius:12,
+                  background:`linear-gradient(135deg,${currentSong.colors[0]},${currentSong.colors[1]},${currentSong.colors[2]})`,
+                  display:'flex', alignItems:'center', justifyContent:'center',
+                  boxShadow:`0 16px 40px ${currentSong.colors[1]}33`,
+                  cursor:'pointer',
+                }} onClick={()=>setView('detail')}>
+                  <svg width="50" height="50" viewBox="0 0 24 24" fill="rgba(255,255,255,0.4)">
+                    <circle cx="12" cy="12" r="4"/>
+                    <circle cx="12" cy="12" r="9" fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth="1.5"/>
+                  </svg>
+                </div>
+              </div>
+
+              <div style={{ padding:'0 20px 16px', display:'flex', alignItems:'flex-start', justifyContent:'space-between' }}>
+                <div>
+                  <div style={{ fontSize:16, fontWeight:700, color:'#fff', marginBottom:2 }}>{currentSong.title}</div>
+                  <div style={{ fontSize:12, color:'rgba(255,255,255,0.45)', marginBottom:1 }}>{currentSong.artist}</div>
+                  <div style={{ fontSize:11, color:'rgba(255,255,255,0.3)' }}>{currentSong.album}</div>
+                </div>
+                <button onClick={()=>toggleLike(currentSong.id)} style={{ background:'none', border:'none', cursor:'pointer', paddingTop:4 }}>
+                  <Icon name="heart" size={18} color={liked[currentSong.id]?'filled':'rgba(255,255,255,0.35)'}/>
+                </button>
+              </div>
+
+              <div style={{ padding:'0 20px 16px' }}>
+                <div style={{ position:'relative', marginBottom:6 }}>
+                  <div style={{ height:3, background:'rgba(255,255,255,0.1)', borderRadius:2, overflow:'visible' }}>
+                    <div style={{ height:'100%', width:`${progressPct}%`, background:'linear-gradient(90deg,#8b5cf6,#ec4899)', borderRadius:2, position:'relative' }}>
+                      <div style={{ position:'absolute', right:-5, top:'50%', transform:'translateY(-50%)', width:10, height:10, borderRadius:'50%', background:'#fff' }}/>
+                    </div>
+                  </div>
+                </div>
+                <div style={{ display:'flex', justifyContent:'space-between', fontSize:11, color:'rgba(255,255,255,0.35)' }}>
+                  <span>{formatTime(progress)}</span>
+                  <span>{currentSong.duration}</span>
+                </div>
+              </div>
+
+              <div style={{ padding:'0 20px 16px', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+                <button onClick={()=>setShuffle(s=>!s)} style={{ background:'none', border:'none', cursor:'pointer', opacity: shuffle?1:0.4 }}>
+                  <Icon name="shuffle" size={16} color={shuffle?'#a78bfa':'#fff'}/>
+                </button>
+                <button onClick={skipPrev} style={{ background:'none', border:'none', cursor:'pointer' }}>
+                  <Icon name="skip_prev" size={20} color="#fff"/>
+                </button>
+                <button onClick={togglePlay} style={{
+                  width:44, height:44, borderRadius:'50%', border:'none', cursor:'pointer',
+                  background:'#fff', display:'flex', alignItems:'center', justifyContent:'center'
+                }}>
+                  <Icon name={isPlaying?'pause':'play'} size={18} color="#0d0d16"/>
+                </button>
+                <button onClick={skipNext} style={{ background:'none', border:'none', cursor:'pointer' }}>
+                  <Icon name="skip_next" size={20} color="#fff"/>
+                </button>
+                <button onClick={()=>setRepeat(r=>!r)} style={{ background:'none', border:'none', cursor:'pointer', opacity: repeat?1:0.4 }}>
+                  <Icon name="repeat" size={16} color={repeat?'#a78bfa':'#fff'}/>
+                </button>
+              </div>
+
+              <div style={{ padding:'0 20px 12px', display:'flex', gap:4 }}>
+                {[{key:'queue',icon:'queue',label:'대기열'},{key:'lyrics',icon:'lyrics',label:'가사'},{key:'bars',icon:'bars',label:'이퀄라이저'}].map(t=>(
+                  <button key={t.key} onClick={()=>setRightPanel(t.key)} style={{
+                    flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:5,
+                    padding:'7px 4px', borderRadius:8, border:'none', cursor:'pointer',
+                    background: rightPanel===t.key ? 'rgba(139,92,246,0.2)' : 'transparent',
+                    color: rightPanel===t.key ? '#a78bfa' : 'rgba(255,255,255,0.3)',
+                    fontSize:11, fontFamily:'inherit', fontWeight: rightPanel===t.key ? 600 : 400,
+                  }}>
+                    <Icon name={t.icon} size={13} color={rightPanel===t.key?'#a78bfa':'rgba(255,255,255,0.3)'}/>
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+
+              <div style={{ flex:1, overflowY:'auto', padding:'0 20px' }}>
+                {rightPanel === 'queue' ? (
+                  <>
+                    <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:12 }}>
+                      <span style={{ fontSize:12, fontWeight:600, color:'rgba(255,255,255,0.5)' }}>다음 곡</span>
+                      <button style={{ background:'none', border:'none', cursor:'pointer', fontSize:11, color:'rgba(255,255,255,0.3)' }}>지우기</button>
+                    </div>
+                    {queue.map(song => (
+                      <div key={song.id} onClick={()=>playSong(song)}
+                        style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 0', cursor:'pointer', borderRadius:8 }}
+                        onMouseEnter={e=>e.currentTarget.style.background='rgba(255,255,255,0.04)'}
+                        onMouseLeave={e=>e.currentTarget.style.background='transparent'}
+                      >
+                        <button onClick={e=>{e.stopPropagation();toggleLike(song.id);}} style={{ background:'none', border:'none', cursor:'pointer' }}>
+                          <Icon name="heart" size={13} color={liked[song.id]?'filled':'rgba(255,255,255,0.25)'}/>
+                        </button>
+                        <AlbumArt song={song} size={36} radius={6}/>
+                        <div style={{ flex:1, minWidth:0 }}>
+                          <div style={{ fontSize:12, fontWeight:500, color:'#fff', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{song.title}</div>
+                          <div style={{ fontSize:11, color:'rgba(255,255,255,0.4)' }}>{song.artist}</div>
+                        </div>
+                        <span style={{ fontSize:11, color:'rgba(255,255,255,0.35)' }}>{song.duration}</span>
+                      </div>
+                    ))}
+                  </>
+                ) : rightPanel === 'lyrics' ? (
+                  <div>
+                    {lyrics.map((l, i) => (
+                      <div key={i} style={{
+                        fontSize:13, lineHeight:2, padding:'2px 0',
+                        color: l.active ? '#fff' : 'rgba(255,255,255,0.3)',
+                        fontWeight: l.active ? 600 : 400,
+                        transition:'all .3s'
+                      }}>{l.line || '\u00a0'}</div>
+                    ))}
+                  </div>
+                ) : (
+                  <div style={{ padding:'20px 0', opacity:0.5, fontSize:12, color:'rgba(255,255,255,0.4)', textAlign:'center' }}>
+                    이퀄라이저 준비 중
+                  </div>
+                )}
+              </div>
+
+              <div style={{ padding:'16px 20px', borderTop:'1px solid rgba(255,255,255,0.05)', display:'flex', alignItems:'center', gap:10 }}>
+                <Icon name="volume" size={14} color="rgba(255,255,255,0.4)"/>
+                <input type="range" min="0" max="100" value={volume}
+                  onChange={e=>setVolume(+e.target.value)}
+                  style={{ flex:1, background:`linear-gradient(90deg,#8b5cf6 ${volume}%,rgba(255,255,255,0.15) ${volume}%)` }}
+                />
+                <Icon name="queue" size={14} color="rgba(255,255,255,0.4)"/>
+              </div>
+            </>
+          )}
+        </aside>
+      </div>
+
+      {/* Bottom playback bar */}
+      <div style={{
+        height:72, flexShrink:0,
+        background:'rgba(8,8,18,0.97)',
+        backdropFilter:'blur(20px)',
+        borderTop:'1px solid rgba(255,255,255,0.06)',
+        display:'flex', alignItems:'center',
+        padding:'0 24px', gap:0,
+      }}>
+        {/* Left: current song */}
+        <div style={{ display:'flex', alignItems:'center', gap:12, width:260, flexShrink:0 }}>
+          <AlbumArt song={currentSong} size={44} radius={8}
+            style={{ cursor:'pointer' }}
+          />
+          <div style={{ minWidth:0 }}>
+            <div style={{ fontSize:13, fontWeight:600, color:'#fff', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{currentSong.title}</div>
+            <div style={{ fontSize:11, color:'rgba(255,255,255,0.45)', marginTop:1 }}>{currentSong.artist}</div>
+          </div>
+          <button onClick={()=>toggleLike(currentSong.id)} style={{ background:'none', border:'none', cursor:'pointer', marginLeft:8 }}>
+            <Icon name="heart" size={16} color={liked[currentSong.id]?'filled':'rgba(255,255,255,0.35)'}/>
+          </button>
+        </div>
+
+        {/* Center: controls + progress */}
+        <div style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', gap:8, padding:'0 20px' }}>
+          <div style={{ display:'flex', alignItems:'center', gap:20 }}>
+            <button onClick={()=>setShuffle(s=>!s)} style={{ background:'none', border:'none', cursor:'pointer', opacity: shuffle?1:0.45 }}>
+              <Icon name="shuffle" size={16} color={shuffle?'#a78bfa':'#fff'}/>
+            </button>
+            <button onClick={skipPrev} style={{ background:'none', border:'none', cursor:'pointer' }}>
+              <Icon name="skip_prev" size={20} color="#fff"/>
+            </button>
+            <button onClick={togglePlay} style={{
+              width:36, height:36, borderRadius:'50%', border:'none', cursor:'pointer',
+              background:'#fff', display:'flex', alignItems:'center', justifyContent:'center'
+            }}>
+              <Icon name={isPlaying?'pause':'play'} size={15} color="#0d0d16"/>
+            </button>
+            <button onClick={skipNext} style={{ background:'none', border:'none', cursor:'pointer' }}>
+              <Icon name="skip_next" size={20} color="#fff"/>
+            </button>
+            <button onClick={()=>setRepeat(r=>!r)} style={{ background:'none', border:'none', cursor:'pointer', opacity: repeat?1:0.45 }}>
+              <Icon name="repeat" size={16} color={repeat?'#a78bfa':'#fff'}/>
+            </button>
+          </div>
+          <div style={{ display:'flex', alignItems:'center', gap:10, width:'100%', maxWidth:500 }}>
+            <span style={{ fontSize:11, color:'rgba(255,255,255,0.4)', width:30, textAlign:'right', flexShrink:0 }}>{formatTime(progress)}</span>
+            <div style={{ flex:1, height:3, background:'rgba(255,255,255,0.1)', borderRadius:2, position:'relative', cursor:'pointer' }}
+              onClick={e=>{
+                const rect = e.currentTarget.getBoundingClientRect();
+                const pct = (e.clientX - rect.left) / rect.width;
+                setProgress(Math.round(pct * currentSong.durationSec));
+              }}
+            >
+              <div style={{ height:'100%', width:`${progressPct}%`, background:'linear-gradient(90deg,#8b5cf6,#ec4899)', borderRadius:2 }}/>
+            </div>
+            <span style={{ fontSize:11, color:'rgba(255,255,255,0.4)', width:30, flexShrink:0 }}>{currentSong.duration}</span>
+          </div>
+        </div>
+
+        {/* Right: volume + extra */}
+        <div style={{ display:'flex', alignItems:'center', gap:14, width:240, justifyContent:'flex-end', flexShrink:0 }}>
+          <button onClick={()=>setView(v=>v==='home'?'detail':'home')} style={{ background:'none', border:'none', cursor:'pointer', opacity:0.5 }}>
+            <Icon name="lyrics" size={16} color="#fff"/>
+          </button>
+          <Icon name="volume" size={16} color="rgba(255,255,255,0.45)"/>
+          <input type="range" min="0" max="100" value={volume}
+            onChange={e=>setVolume(+e.target.value)}
+            style={{ width:90, background:`linear-gradient(90deg,#8b5cf6 ${volume}%,rgba(255,255,255,0.15) ${volume}%)` }}
+          />
+          <button style={{ background:'none', border:'none', cursor:'pointer', opacity:0.45 }}>
+            <Icon name="queue" size={16} color="#fff"/>
+          </button>
+        </div>
+      </div>
+
+      <style>{`
+        @keyframes eq1 { from{height:6px} to{height:12px} }
+        @keyframes eq2 { from{height:12px} to{height:4px} }
+        @keyframes eq3 { from{height:8px} to{height:14px} }
+        button:hover { opacity: 0.85; }
+        input[type=range] { cursor:pointer; }
+      `}</style>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
