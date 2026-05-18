@@ -1,8 +1,9 @@
 import { app, shell, BrowserWindow, ipcMain, dialog } from 'electron'
-import { join } from 'path'
-import { pathToFileURL } from 'url'
-import { statSync, readdirSync } from 'fs'
-import { electronApp, optimizer, is } from '@electron-toolkit/utils'
+import { basename, dirname, extname, join } from 'path'
+import { fileURLToPath, pathToFileURL } from 'url'
+import { existsSync, statSync } from 'fs'
+import { execFile } from 'child_process'
+import { electronApp, is } from '@electron-toolkit/utils'
 import { Client } from '@xhayper/discord-rpc'
 import http from 'http'
 import ffmpeg from 'fluent-ffmpeg'
@@ -11,6 +12,7 @@ import ffmpegPath from '@ffmpeg-installer/ffmpeg'
 ffmpeg.setFfmpegPath(ffmpegPath.path)
 
 let transcodePort = 0
+const metadataWarningPaths = new Set<string>()
 const server = http.createServer((req, res) => {
   try {
     const url = new URL(req.url!, `http://${req.headers.host}`)
@@ -18,7 +20,8 @@ const server = http.createServer((req, res) => {
       const filePath = url.searchParams.get('path')
       if (!filePath) {
         res.writeHead(400)
-        return res.end()
+        res.end()
+        return
       }
 
       res.writeHead(200, {
@@ -52,6 +55,7 @@ const server = http.createServer((req, res) => {
   } catch (e) {
     res.writeHead(500).end()
   }
+  return
 })
 
 server.listen(0, '127.0.0.1', () => {
@@ -64,15 +68,19 @@ const DISCORD_CLIENT_ID = '1498628582795116544'
 const rpc = new Client({ clientId: DISCORD_CLIENT_ID })
 let rpcReady = false
 let rpcEnabled = true
+let rpcLoginInFlight = false
+let lastRpcLoginAttempt = 0
 
 rpc.on('ready', () => {
   rpcReady = true
   console.log('[Discord RPC] Connected')
 })
 
-rpc.login().catch((err: Error) => {
-  console.warn('[Discord RPC] Login failed (Discord not running?):', err.message)
+rpc.on('disconnected', () => {
+  rpcReady = false
 })
+
+connectDiscordRpc()
 
 let mainWindow: BrowserWindow | null = null
 
@@ -124,7 +132,7 @@ function createWindow(): void {
 
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('com.ph1water.musicplayer')
-  app.on('browser-window-created', (_, window) => {
+  app.on('browser-window-created', () => {
     // optimizer.watchWindowShortcuts(window)
   })
   createWindow()
@@ -146,25 +154,26 @@ async function parseTrack(filePath: string) {
     const stats = statSync(filePath)
     const metadata = await parseFile(filePath)
 
-    let cover = undefined
+    let cover: string | undefined = undefined
     if (metadata.common.picture && metadata.common.picture.length > 0) {
       const pic = metadata.common.picture[0]
       cover = `data:${pic.format};base64,${Buffer.from(pic.data).toString('base64')}`
     }
 
     const url = pathToFileURL(filePath).href
+    const album = cleanAlbumTitle(metadata.common.album)
 
     return {
       id: filePath,
       title: metadata.common.title || 'Unknown Title',
       artist: metadata.common.artist || 'Unknown Artist',
-      album: metadata.common.album,
+      album,
       url: url,
       cover: cover,
       addedAt: stats.birthtimeMs,
       lyrics: metadata.common.lyrics?.[0],
       duration: metadata.format.duration,
-      needsTranscoding: metadata.format.codec?.toLowerCase().includes('dby') || metadata.format.codec?.toLowerCase().includes('ac-3') || filePath.toLowerCase().endsWith('.mp4'),
+      needsTranscoding: needsTranscodingFor(filePath, metadata.format.codec),
       format: {
         container: metadata.format.container,
         codec: metadata.format.codec,
@@ -175,8 +184,161 @@ async function parseTrack(filePath: string) {
     }
   } catch (e) {
     const url = pathToFileURL(filePath).href
-    return { id: filePath, title: 'Error loading', artist: '', url: url, format: {} }
+    let addedAt: number | undefined
+    try {
+      addedAt = statSync(filePath).birthtimeMs
+    } catch {}
+
+    const [fallback, cover] = await Promise.all([
+      readMetadataWithFfmpeg(filePath).catch(() => null),
+      readCoverWithFfmpeg(filePath).catch(() => undefined)
+    ])
+    warnMetadataFallback(filePath, e, Boolean(fallback))
+
+    return {
+      id: filePath,
+      title: fallback?.title || fallbackTitleFromPath(filePath),
+      artist: fallback?.artist || 'Unknown Artist',
+      album: cleanAlbumTitle(fallback?.album),
+      url,
+      cover,
+      addedAt,
+      duration: fallback?.duration,
+      needsTranscoding: needsTranscodingFor(filePath, fallback?.codec),
+      format: {
+        container: fallback?.container,
+        codec: fallback?.codec,
+        bitrate: fallback?.bitrate,
+        sampleRate: fallback?.sampleRate
+      }
+    }
   }
+}
+
+function fallbackTitleFromPath(filePath: string): string {
+  const name = basename(filePath, extname(filePath)).trim()
+  return name || 'Unknown Title'
+}
+
+function needsTranscodingFor(filePath: string, codec?: string): boolean {
+  const normalizedCodec = codec?.toLowerCase() || ''
+  return filePath.toLowerCase().endsWith('.mp4')
+    || normalizedCodec.includes('dby')
+    || normalizedCodec.includes('eac3')
+    || normalizedCodec.includes('e-ac-3')
+    || normalizedCodec.includes('ac-3')
+    || normalizedCodec.includes('ac3')
+}
+
+function warnMetadataFallback(filePath: string, error: unknown, usedFfmpegFallback: boolean): void {
+  if (metadataWarningPaths.has(filePath)) return
+  metadataWarningPaths.add(filePath)
+  const message = error instanceof Error ? error.message : String(error)
+  console.warn(`[Metadata] music-metadata failed; ${usedFfmpegFallback ? 'used FFmpeg fallback' : 'used filename fallback'}: ${filePath} (${message})`)
+}
+
+function readMetadataWithFfmpeg(filePath: string): Promise<{
+  title?: string
+  artist?: string
+  album?: string
+  duration?: number
+  codec?: string
+  bitrate?: number
+  sampleRate?: number
+  container?: string
+}> {
+  return new Promise((resolve, reject) => {
+    execFile(ffmpegPath.path, ['-hide_banner', '-i', filePath], { windowsHide: true }, (_err, _stdout, stderr) => {
+      if (!stderr) {
+        reject(new Error('No FFmpeg metadata output'))
+        return
+      }
+
+      const tags: Record<string, string> = {}
+      for (const line of stderr.split(/\r?\n/)) {
+        const tag = line.match(/^\s{4,}([A-Za-z0-9_ -]+)\s*:\s*(.+)$/)
+        if (tag) tags[tag[1].trim().toLowerCase()] = tag[2].trim()
+      }
+
+      const durationMatch = stderr.match(/Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/)
+      const audioMatch = stderr.match(/Audio:\s*([^,\s]+).*?(\d+)\s*Hz/i)
+      const bitrateMatch = stderr.match(/bitrate:\s*(\d+)\s*kb\/s/i)
+      const containerMatch = stderr.match(/Input #0,\s*([^,]+(?:,[^,]+)*),\s*from/i)
+
+      resolve({
+        title: tags.title,
+        artist: tags.artist || tags.album_artist,
+        album: tags.album,
+        duration: durationMatch
+          ? Number(durationMatch[1]) * 3600 + Number(durationMatch[2]) * 60 + Number(durationMatch[3])
+          : undefined,
+        codec: audioMatch?.[1],
+        bitrate: bitrateMatch ? Number(bitrateMatch[1]) * 1000 : undefined,
+        sampleRate: audioMatch ? Number(audioMatch[2]) : undefined,
+        container: containerMatch?.[1]?.trim()
+      })
+    })
+  })
+}
+
+function readCoverWithFfmpeg(filePath: string): Promise<string | undefined> {
+  return new Promise((resolve, reject) => {
+    execFile(
+      ffmpegPath.path,
+      ['-hide_banner', '-loglevel', 'error', '-i', filePath, '-map', '0:v:0', '-frames:v', '1', '-f', 'image2pipe', '-vcodec', 'mjpeg', 'pipe:1'],
+      { windowsHide: true, encoding: 'buffer', maxBuffer: 12 * 1024 * 1024 },
+      (err, stdout) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        const image = Buffer.isBuffer(stdout) ? stdout : Buffer.from(stdout)
+        if (image.length === 0) {
+          resolve(undefined)
+          return
+        }
+        resolve(`data:image/jpeg;base64,${image.toString('base64')}`)
+      }
+    )
+  })
+}
+
+function cleanAlbumTitle(album?: string): string | undefined {
+  const value = album?.trim()
+  if (!value) return undefined
+
+  const normalized = value.toLowerCase()
+  const placeholders = new Set([
+    'no album',
+    'no album title',
+    'no album title detected',
+    'unknown album',
+    'untitled album'
+  ])
+
+  return placeholders.has(normalized) ? undefined : value
+}
+
+function connectDiscordRpc(): void {
+  if (!rpcEnabled || rpcReady || rpcLoginInFlight) return
+  const now = Date.now()
+  if (now - lastRpcLoginAttempt < 5000) return
+
+  rpcLoginInFlight = true
+  lastRpcLoginAttempt = now
+  rpc.login()
+    .catch((err: Error) => {
+      rpcReady = false
+      console.warn('[Discord RPC] Login failed (Discord not running?):', err.message)
+    })
+    .finally(() => {
+      rpcLoginInFlight = false
+    })
+}
+
+function cleanPresenceText(value: string | undefined, fallback: string): string {
+  const text = value?.replace(/\s+/g, ' ').trim() || fallback
+  return text.slice(0, 120)
 }
 
 // IPC Handlers
@@ -199,6 +361,21 @@ ipcMain.handle('get-tracks-by-paths', async (_, filePaths: string[]) => {
 })
 
 ipcMain.handle('get-transcode-port', () => transcodePort)
+
+ipcMain.handle('show-item-in-folder', async (_, rawPath: string) => {
+  if (!rawPath || rawPath.startsWith('http')) return false
+
+  const filePath = rawPath.startsWith('file://') ? fileURLToPath(rawPath) : rawPath
+  const targetPath = existsSync(filePath) ? filePath : dirname(filePath)
+  if (!existsSync(targetPath)) return false
+
+  shell.showItemInFolder(targetPath)
+  if (targetPath !== filePath) {
+    const result = await shell.openPath(targetPath)
+    return result === ''
+  }
+  return true
+})
 
 // Cover Art Cache (Title + Artist -> Image URL)
 const coverCache = new Map<string, string>()
@@ -227,7 +404,8 @@ async function searchCoverOnline(title: string, artist: string): Promise<string 
 ipcMain.handle('discord-get-status', () => rpcReady && rpcEnabled)
 ipcMain.handle('discord-set-enabled', (_, val: boolean) => {
   rpcEnabled = val
-  if (!val && rpcReady) rpc.clearActivity().catch(() => {})
+  if (!val && rpcReady) rpc.user?.clearActivity().catch(() => {})
+  if (val) connectDiscordRpc()
 })
 
 ipcMain.on('discord-update-presence', (_, info: {
@@ -239,62 +417,59 @@ ipcMain.on('discord-update-presence', (_, info: {
   isYouTube?: boolean
   currentTime?: number
   duration?: number
-  format?: { container?: string; lossless?: boolean; sampleRate?: number; bitrate?: number }
 }) => {
-  if (!rpcReady || !rpc.user || !rpcEnabled) return
+  if (!rpcEnabled) return
+  if (!rpcReady || !rpc.user) {
+    connectDiscordRpc()
+    return
+  }
+
   try {
-    // 음질 정보 문자열 구성
-    let qualityText = '로컬 파일'
-    if (info.format) {
-      const parts: string[] = []
-      if (info.format.container) parts.push(info.format.container.toUpperCase())
-      if (info.format.sampleRate) parts.push(`${(info.format.sampleRate / 1000).toFixed(1)}kHz`)
-      if (info.format.bitrate && !info.format.lossless) parts.push(`${Math.round(info.format.bitrate / 1000)}kbps`)
-      if (parts.length > 0) qualityText = parts.join(' · ')
-    }
+    const title = cleanPresenceText(info.title, 'Unknown Title')
+    const artist = cleanPresenceText(info.artist, 'Unknown Artist')
+    const album = cleanAlbumTitle(info.album)
 
     // 앨범아트 처리
     let largeImageKey = (info.cover && info.cover.startsWith('https')) ? info.cover : 'logo'
     
     // 로컬 파일이고 커버가 없는 경우 온라인 검색 시도
     if (largeImageKey === 'logo') {
-      const query = `${info.title} ${info.artist}`.trim()
+      const query = `${title} ${artist}`.trim()
       if (coverCache.has(query)) {
         largeImageKey = coverCache.get(query)!
       } else {
         // 백그라운드에서 검색 후 다음 업데이트 때 반영되도록 함
-        searchCoverOnline(info.title, info.artist).catch(() => {})
+        searchCoverOnline(title, artist).catch(() => {})
       }
     }
 
-    const largeImageText = info.album || 'Luma'
-
-    // 재생 state 줄: 아티스트 이름만 표시
-    const stateBase = info.artist
+    const largeImageText = album || 'Luma'
+    const stateBase = album ? `${artist} · ${album}` : artist
 
     if (info.isPlaying) {
       const now = Date.now()
-      const elapsed = (info.currentTime || 0) * 1000
-      const startTimestamp = now - elapsed
-      const endTimestamp = info.duration ? startTimestamp + info.duration * 1000 : undefined
+      const currentTime = Number.isFinite(info.currentTime) ? Math.max(info.currentTime || 0, 0) : 0
+      const duration = Number.isFinite(info.duration) && (info.duration || 0) > 0 ? info.duration || 0 : undefined
+      const startMs = now - currentTime * 1000
+      const endMs = duration ? startMs + duration * 1000 : undefined
 
       rpc.user.setActivity({
         type: 2, // Listening
-        details: info.title,
+        details: title,
         state: stateBase,
         largeImageKey,
         largeImageText,
         smallImageKey: info.isYouTube ? 'youtube' : undefined,
         smallImageText: info.isYouTube ? 'YouTube 스트리밍' : undefined,
-        startTimestamp,
-        endTimestamp,
+        startTimestamp: new Date(startMs),
+        endTimestamp: endMs ? new Date(endMs) : undefined,
         instance: false
       })
     } else {
       // 일시정지: 타이머 없이 깔끔하게
       rpc.user.setActivity({
         type: 2, // Listening
-        details: info.title,
+        details: title,
         state: `⏸ ${stateBase}`,
         largeImageKey,
         largeImageText,
@@ -310,4 +485,3 @@ ipcMain.on('discord-clear-presence', () => {
   if (!rpcReady || !rpc.user) return
   rpc.user.clearActivity().catch(() => { })
 })
-

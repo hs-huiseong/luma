@@ -1,10 +1,22 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { exposeElectronAPI } from '@electron-toolkit/preload'
 
+type DiscordPresenceInfo = {
+  title: string
+  artist: string
+  album?: string
+  cover?: string
+  isPlaying: boolean
+  isYouTube?: boolean
+  currentTime?: number
+  duration?: number
+}
+
 const api = {
   selectFiles: () => ipcRenderer.invoke('select-files'),
   getTracksByPaths: (paths: string[]) => ipcRenderer.invoke('get-tracks-by-paths', paths),
   getTranscodePort: () => ipcRenderer.invoke('get-transcode-port'),
+  showItemInFolder: (path: string) => ipcRenderer.invoke('show-item-in-folder', path),
   selectFolder: () => ipcRenderer.invoke('select-folder'),
   watchFolder: (path: string) => ipcRenderer.send('watch-folder', path),
   onFolderUpdated: (callback: (tracks: any[]) => void) => {
@@ -18,7 +30,7 @@ const api = {
   youtubeGetPlaylist: (url: string) => ipcRenderer.invoke('youtube-get-playlist', url),
   youtubeGetSubtitles: (videoId: string) => ipcRenderer.invoke('youtube-get-subtitles', videoId),
   // Discord RPC
-  discordUpdatePresence: (info: { title: string; artist: string; isPlaying: boolean; isYouTube?: boolean }) => 
+  discordUpdatePresence: (info: DiscordPresenceInfo) => 
     ipcRenderer.send('discord-update-presence', info),
   discordClearPresence: () => ipcRenderer.send('discord-clear-presence'),
   discordGetStatus: () => ipcRenderer.invoke('discord-get-status'),

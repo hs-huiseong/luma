@@ -1,9 +1,9 @@
 {
   "name": "luma-music",
   "version": "1.0.0",
-  "description": "play flac music",
+  "description": "play music",
   "main": "./out/main/index.js",
-  "author": "ph1water",
+  "author": "huiseong",
   "scripts": {
     "format": "prettier --write .",
     "lint": "eslint . --ext .js,.jsx,.cjs,.mjs,.ts,.tsx,.cts,.mts --fix",
@@ -13,6 +13,10 @@
     "start": "electron-vite preview",
     "dev": "electron-vite dev",
     "build": "electron-vite build",
+    "mobile:dev": "npm --prefix mobile run start",
+    "mobile:android": "npm --prefix mobile run android",
+    "mobile:ios": "npm --prefix mobile run ios",
+    "mobile:web": "npm --prefix mobile run web",
     "postinstall": "electron-builder install-app-deps",
     "build:unpack": "npm run build && electron-builder --dir",
     "build:win": "npm run build && electron-builder --win",
@@ -53,9 +57,9 @@
     "vite": "^5.1.4"
   },
   "build": {
-    "appId": "com.ph1water.musicplayer",
+    "appId": "com.huiseong.musicplayer",
     "productName": "Luma",
-    "copyright": "Copyright © 2026 ph1water",
+    "copyright": "Copyright © 2026 huiseong",
     "directories": {
       "output": "dist"
     },

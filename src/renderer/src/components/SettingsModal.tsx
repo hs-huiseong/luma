@@ -6,6 +6,10 @@ interface SettingsModalProps {
 }
 
 const SETTINGS_KEY = 'luma-settings'
+const MUSIC_STATE_KEY = 'luma-music-state'
+const MUSIC_STATS_KEY = 'luma-music-stats'
+const OLD_MUSIC_STATE_KEY = 'sanseong-music-state'
+const OLD_MUSIC_STATS_KEY = 'sanseong-music-stats'
 
 function loadSettings() {
   try {
@@ -76,6 +80,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
 
   const handleRpcToggle = (val: boolean) => {
     setRpcEnabled(val)
+    setRpcStatus(val ? 'checking' : 'disconnected')
     update('discordRpc', val)
     ;(window as any).api.discordSetEnabled?.(val)
   }
@@ -83,15 +88,16 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
   const handleReset = (type: 'recent' | 'all') => {
     if (type === 'recent') {
       try {
-        const saved = JSON.parse(localStorage.getItem('luma-music-state') || '{}')
+        const saved = JSON.parse(localStorage.getItem(MUSIC_STATE_KEY) || '{}')
         saved.recentPaths = []
-        localStorage.setItem('luma-music-state', JSON.stringify(saved))
+        localStorage.setItem(MUSIC_STATE_KEY, JSON.stringify(saved))
       } catch {}
     } else {
-      localStorage.removeItem('luma-music-state')
-      localStorage.removeItem('luma-music-stats')
-      localStorage.removeItem('sanseong-music-state')
-      localStorage.removeItem('sanseong-music-stats')
+      localStorage.removeItem(MUSIC_STATE_KEY)
+      localStorage.removeItem(MUSIC_STATS_KEY)
+      localStorage.removeItem(OLD_MUSIC_STATE_KEY)
+      localStorage.removeItem(OLD_MUSIC_STATS_KEY)
+      localStorage.removeItem(SETTINGS_KEY)
     }
     setResetConfirm(null)
     setResetDone(true)
@@ -130,7 +136,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
           <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.5)', marginBottom: 24, lineHeight: 1.7, whiteSpace: 'pre-line' }}>
             {resetConfirm === 'recent'
               ? '최근 재생 기록이 모두 삭제됩니다.\n계속하시겠습니까?'
-              : '재생목록, 즐겨찾기, 최근 기록, 통계가\n모두 삭제됩니다. 이 작업은 되돌릴 수 없습니다.'}
+              : '재생목록, 즐겨찾기, 최근 기록, 통계, 설정이\n모두 삭제됩니다. 이 작업은 되돌릴 수 없습니다.'}
           </div>
           <div style={{ display: 'flex', gap: 10 }}>
             <button
@@ -241,7 +247,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
             }}>
               <div>
                 <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 3, color: '#f87171' }}>앱 전체 초기화</div>
-                <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)' }}>재생목록, 즐겨찾기, 기록, 통계 모두 삭제</div>
+                <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)' }}>재생목록, 즐겨찾기, 기록, 통계, 설정 모두 삭제</div>
               </div>
               <button
                 onClick={() => setResetConfirm('all')}

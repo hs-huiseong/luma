@@ -1,0 +1,29 @@
+{
+  "expo": {
+    "name": "Luma Mobile",
+    "slug": "luma-mobile",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "scheme": "luma",
+    "userInterfaceStyle": "dark",
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "infoPlist": {
+        "UIBackgroundModes": [
+          "audio"
+        ]
+      }
+    },
+    "android": {
+      "package": "com.huiseong.lumamobile",
+      "permissions": []
+    },
+    "plugins": [
+      "expo-audio",
+      "expo-document-picker"
+    ]
+  }
+}
